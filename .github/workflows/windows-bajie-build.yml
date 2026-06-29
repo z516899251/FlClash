@@ -56,6 +56,17 @@ jobs:
       - name: Package Windows
         run: dart setup.dart windows --env stable -v
 
+      # 发行脚本没有留下 Release 目录时，显式执行 Flutter Windows 构建作为兜底。
+      - name: Build Windows portable fallback
+        shell: pwsh
+        run: |
+          # Flutter Release 输出目录，里面的 FlClash.exe 可直接运行。
+          $releasePath = Join-Path $PWD "build/windows/x64/runner/Release"
+          $appExePath = Join-Path $releasePath "FlClash.exe"
+          if (-not (Test-Path $appExePath)) {
+            flutter build windows --release --dart-define-from-file=env.json -v
+          }
+
       # 汇总 Windows 产物；如果发行脚本没有写入 dist，则兜底打包 Flutter Release 目录。
       - name: Collect Windows outputs
         shell: pwsh
@@ -66,17 +77,34 @@ jobs:
 
           # Flutter Windows Release 输出目录，包含可直接运行的 FlClash.exe 及依赖文件。
           $releasePath = Join-Path $PWD "build/windows/x64/runner/Release"
-          if (Test-Path $releasePath) {
+          $appExePath = Join-Path $releasePath "FlClash.exe"
+          if (Test-Path $appExePath) {
             $portableZipPath = Join-Path $distPath "FlClash-Bajie-Windows-x64-portable.zip"
             Compress-Archive -Path (Join-Path $releasePath "*") -DestinationPath $portableZipPath -Force
           }
 
+          # 诊断文件记录仓库内生成的 Windows 相关文件，便于后续排查产物路径。
+          $diagnosticPath = Join-Path $distPath "artifact-diagnostics.txt"
+          Get-ChildItem -Path $PWD -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.FullName -match "\\(dist|build)\\"
+            } |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize |
+            Out-String |
+            Set-Content -Path $diagnosticPath
+
           # 输出产物清单，并在没有任何可下载文件时让 workflow 明确失败。
-          $artifactFiles = Get-ChildItem -Path $distPath -Recurse -File
-          if (-not $artifactFiles) {
-            throw "No Windows artifacts were found in dist or Flutter Release output."
+          $downloadableFiles = Get-ChildItem -Path $distPath -Recurse -File |
+            Where-Object { $_.Name -ne "artifact-diagnostics.txt" }
+          if (-not $downloadableFiles) {
+            $missingMarkerPath = Join-Path $distPath "NO_DOWNLOADABLE_ARTIFACT.txt"
+            "No downloadable Windows artifact was found. Check artifact-diagnostics.txt." |
+              Set-Content -Path $missingMarkerPath
+            Write-Warning "No downloadable Windows artifact was found. Diagnostics will be uploaded."
+            return
           }
-          $artifactFiles | Select-Object FullName, Length | Format-Table -AutoSize
+          $downloadableFiles | Select-Object FullName, Length | Format-Table -AutoSize
 
       # 上传 dist 目录，安装包可在 Actions 运行详情页下载。
       - name: Upload Windows artifact
@@ -86,3 +114,13 @@ jobs:
           path: ./dist
           if-no-files-found: error
           overwrite: true
+
+      # 上传诊断后再校验是否真的包含可运行产物，避免成功状态掩盖空包问题。
+      - name: Validate Windows artifact
+        shell: pwsh
+        run: |
+          # 只要缺失标记存在，就说明上传的是诊断文件而不是可运行客户端。
+          $missingMarkerPath = Join-Path $PWD "dist/NO_DOWNLOADABLE_ARTIFACT.txt"
+          if (Test-Path $missingMarkerPath) {
+            throw "No downloadable Windows artifact was produced."
+          }
