@@ -56,10 +56,33 @@ jobs:
       - name: Package Windows
         run: dart setup.dart windows --env stable -v
 
+      # 汇总 Windows 产物；如果发行脚本没有写入 dist，则兜底打包 Flutter Release 目录。
+      - name: Collect Windows outputs
+        shell: pwsh
+        run: |
+          # 产物目录固定为仓库根目录下的 dist，便于 upload-artifact 统一读取。
+          $distPath = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $distPath | Out-Null
+
+          # Flutter Windows Release 输出目录，包含可直接运行的 FlClash.exe 及依赖文件。
+          $releasePath = Join-Path $PWD "build/windows/x64/runner/Release"
+          if (Test-Path $releasePath) {
+            $portableZipPath = Join-Path $distPath "FlClash-Bajie-Windows-x64-portable.zip"
+            Compress-Archive -Path (Join-Path $releasePath "*") -DestinationPath $portableZipPath -Force
+          }
+
+          # 输出产物清单，并在没有任何可下载文件时让 workflow 明确失败。
+          $artifactFiles = Get-ChildItem -Path $distPath -Recurse -File
+          if (-not $artifactFiles) {
+            throw "No Windows artifacts were found in dist or Flutter Release output."
+          }
+          $artifactFiles | Select-Object FullName, Length | Format-Table -AutoSize
+
       # 上传 dist 目录，安装包可在 Actions 运行详情页下载。
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: FlClash-Bajie-Windows-x64
           path: ./dist
+          if-no-files-found: error
           overwrite: true
