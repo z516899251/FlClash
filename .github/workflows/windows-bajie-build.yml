@@ -105,6 +105,12 @@ jobs:
             }
           }
 
+          # 兜底上传完整 Windows 构建树，便于在路径识别失败时仍能下载并定位真实可执行文件。
+          if (Test-Path $windowsBuildPath) {
+            $buildTreeZipPath = Join-Path $distPath "FlClash-Bajie-Windows-build-tree.zip"
+            Compress-Archive -Path (Join-Path $windowsBuildPath "*") -DestinationPath $buildTreeZipPath -Force
+          }
+
           # 诊断文件记录仓库内生成的 Windows 相关文件，便于后续排查产物路径。
           $diagnosticPath = Join-Path $distPath "artifact-diagnostics.txt"
           Get-ChildItem -Path $PWD -Recurse -File -ErrorAction SilentlyContinue |
