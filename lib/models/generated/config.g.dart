@@ -78,6 +78,7 @@ const _$DashboardWidgetEnumMap = {
   DashboardWidget.vpnButton: 'vpnButton',
   DashboardWidget.systemProxyButton: 'systemProxyButton',
   DashboardWidget.intranetIp: 'intranetIp',
+  DashboardWidget.subscriptionUsage: 'subscriptionUsage',
   DashboardWidget.memoryInfo: 'memoryInfo',
 };
 

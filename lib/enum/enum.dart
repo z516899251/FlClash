@@ -313,6 +313,10 @@ enum DashboardWidget {
     platforms: desktopPlatforms,
   ),
   intranetIp(GridItem(crossAxisCellCount: 4, child: IntranetIP())),
+  // 订阅用量卡片，仅由仪表盘在当前配置为八戒.yml时动态加载。
+  subscriptionUsage(
+    GridItem(crossAxisCellCount: 4, child: SubscriptionUsage()),
+  ),
   memoryInfo(GridItem(crossAxisCellCount: 4, child: MemoryInfo()));
 
   final GridItem widget;

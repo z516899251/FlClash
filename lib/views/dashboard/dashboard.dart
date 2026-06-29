@@ -4,6 +4,7 @@ import 'package:defer_pointer/defer_pointer.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
@@ -13,6 +14,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'widgets/start_button.dart';
 
 typedef _IsEditWidgetBuilder = Widget Function(bool isEdit);
+
+// 八戒订阅配置文件名，只有当前选中配置的展示名匹配时才加载订阅用量卡片。
+const _bajieProfileFileName = '八戒.yml';
 
 class DashboardView extends ConsumerStatefulWidget {
   const DashboardView({super.key});
@@ -226,13 +230,38 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     }
   }
 
+  // 判断当前配置是否为八戒订阅配置，内部 profile 文件名是 id.yaml，所以这里使用导入时保留的 realLabel。
+  bool _shouldShowSubscriptionUsage(Profile? currentProfile) {
+    return currentProfile?.realLabel == _bajieProfileFileName;
+  }
+
+  // 根据当前配置动态处理订阅用量卡片，非八戒配置时完全过滤，八戒配置时固定追加到末尾。
+  List<DashboardWidget> _buildDashboardWidgets(
+    List<DashboardWidget> dashboardWidgets,
+    bool showSubscriptionUsage,
+  ) {
+    final widgets = dashboardWidgets
+        .where((item) => item != DashboardWidget.subscriptionUsage)
+        .toList();
+    if (showSubscriptionUsage) {
+      return [...widgets, DashboardWidget.subscriptionUsage];
+    }
+    return widgets;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dashboardState = ref.watch(dashboardStateProvider);
+    final currentProfile = ref.watch(currentProfileProvider);
+    final showSubscriptionUsage = _shouldShowSubscriptionUsage(currentProfile);
+    final dashboardWidgets = _buildDashboardWidgets(
+      dashboardState.dashboardWidgets,
+      showSubscriptionUsage,
+    );
     final columns = max(4 * ((dashboardState.contentWidth / 280).ceil()), 8);
     final spacing = 14.mAp;
     final children = [
-      ...dashboardState.dashboardWidgets
+      ...dashboardWidgets
           .where(
             (item) => item.platforms.contains(SupportPlatform.currentPlatform),
           )
@@ -242,6 +271,8 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       _addedWidgetsNotifier.value = DashboardWidget.values
           .where(
             (item) =>
+                (showSubscriptionUsage ||
+                    item != DashboardWidget.subscriptionUsage) &&
                 !children.contains(item.widget) &&
                 item.platforms.contains(SupportPlatform.currentPlatform),
           )

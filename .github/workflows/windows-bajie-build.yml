@@ -1,0 +1,65 @@
+# 八戒订阅用量定制版 Windows 打包流程，仅用于在 GitHub Actions 云端生成安装包。
+name: Windows Bajie Build
+
+on:
+  # 推送到定制分支时自动打包，方便每次源码调整后直接拿到新产物。
+  push:
+    branches:
+      - codex/bajie-subscription-usage
+  # 允许在 GitHub Actions 页面手动点击运行，并可选择要打包的分支。
+  workflow_dispatch:
+
+env:
+  # 使用稳定环境参数，保持与正式版 Windows 包的运行配置一致。
+  IS_STABLE: "true"
+
+jobs:
+  windows:
+    # Windows x64 打包任务，输出由 setup.dart 写入 dist 目录。
+    name: Build Windows x64
+    runs-on: windows-2022
+
+    steps:
+      # 拉取源码和子模块，core 与构建插件都依赖 submodules。
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Windows 构建路径较长，开启 longpaths 避免依赖路径超限。
+      - name: Enable git long paths
+        run: git config --global core.longpaths true
+
+      # 安装 Go，用于 setup.dart 预编译 ClashMeta core。
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.0"
+          cache-dependency-path: |
+            core/go.sum
+
+      # 安装项目当前上游工作流使用的 Flutter 版本。
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+
+      # 拉取 Dart/Flutter 依赖，提前暴露 pub 解析问题。
+      - name: Get Flutter dependencies
+        run: |
+          flutter --version
+          flutter pub get
+
+      # 执行 Windows 打包脚本，生成 exe 和 zip 到 dist 目录。
+      - name: Package Windows
+        run: dart setup.dart windows --env stable -v
+
+      # 上传 dist 目录，安装包可在 Actions 运行详情页下载。
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlClash-Bajie-Windows-x64
+          path: ./dist
+          overwrite: true
