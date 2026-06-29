@@ -85,6 +85,26 @@ jobs:
             Compress-Archive -Path (Join-Path $releasePath "*") -DestinationPath $portableZipPath -Force
           }
 
+          # 自动扫描 Flutter Windows bundle 目录，兼容不同 Flutter 版本或打包器生成的实际路径。
+          $windowsBuildPath = Join-Path $PWD "build/windows"
+          if (Test-Path $windowsBuildPath) {
+            $bundleDirs = Get-ChildItem -Path $windowsBuildPath -Directory -Recurse |
+              Where-Object {
+                $hasExecutable = @(Get-ChildItem -Path $_.FullName -Filter "*.exe" -File -ErrorAction SilentlyContinue).Count -gt 0
+                $hasFlutterDll = Test-Path (Join-Path $_.FullName "flutter_windows.dll")
+                $hasFlutterAssets = Test-Path (Join-Path $_.FullName "data/flutter_assets")
+                $hasExecutable -and ($hasFlutterDll -or $hasFlutterAssets)
+              } |
+              Sort-Object FullName -Unique
+
+            $index = 1
+            foreach ($bundleDir in $bundleDirs) {
+              $portableZipPath = Join-Path $distPath "FlClash-Bajie-Windows-x64-portable-$index.zip"
+              Compress-Archive -Path (Join-Path $bundleDir.FullName "*") -DestinationPath $portableZipPath -Force
+              $index++
+            }
+          }
+
           # 诊断文件记录仓库内生成的 Windows 相关文件，便于后续排查产物路径。
           $diagnosticPath = Join-Path $distPath "artifact-diagnostics.txt"
           Get-ChildItem -Path $PWD -Recurse -File -ErrorAction SilentlyContinue |
