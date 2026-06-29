@@ -58,6 +58,8 @@ jobs:
 
       # 发行脚本没有留下 Release 目录时，显式执行 Flutter Windows 构建作为兜底。
       - name: Build Windows portable fallback
+        # 兜底构建失败时继续执行产物收集，避免发行脚本已有产物却被 fallback 中断。
+        continue-on-error: true
         shell: pwsh
         run: |
           # Flutter Release 输出目录，里面的 FlClash.exe 可直接运行。
