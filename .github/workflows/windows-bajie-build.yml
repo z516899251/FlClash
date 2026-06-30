@@ -52,9 +52,33 @@ jobs:
           flutter --version
           flutter pub get
 
+      # 运行 Flutter 静态分析，并把完整输出写入 artifact，便于排查 Dart 编译问题。
+      - name: Analyze Flutter sources
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # 日志目录提前创建，后续失败时仍可上传分析结果。
+          $distPath = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $distPath | Out-Null
+          $analyzeLogPath = Join-Path $distPath "flutter-analyze.log"
+          flutter analyze --no-fatal-infos *>&1 | Tee-Object -FilePath $analyzeLogPath
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
       # 执行 Windows 打包脚本，生成 exe 和 zip 到 dist 目录。
       - name: Package Windows
-        run: dart setup.dart windows --env stable -v
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # 发行脚本日志写入 artifact，避免只能看到中间目录而看不到失败原因。
+          $distPath = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $distPath | Out-Null
+          $packageLogPath = Join-Path $distPath "setup-windows.log"
+          dart setup.dart windows --env stable -v *>&1 | Tee-Object -FilePath $packageLogPath
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
       # 发行脚本没有留下 Release 目录时，显式执行 Flutter Windows 构建作为兜底。
       - name: Build Windows portable fallback
@@ -63,14 +87,22 @@ jobs:
         shell: pwsh
         run: |
           # Flutter Release 输出目录，里面的 FlClash.exe 可直接运行。
+          $distPath = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $distPath | Out-Null
           $releasePath = Join-Path $PWD "build/windows/x64/runner/Release"
           $appExePath = Join-Path $releasePath "FlClash.exe"
           if (-not (Test-Path $appExePath)) {
-            flutter build windows --release --dart-define-from-file=env.json -v
+            $fallbackLogPath = Join-Path $distPath "flutter-build-windows.log"
+            flutter build windows --release --dart-define-from-file=env.json -v *>&1 |
+              Tee-Object -FilePath $fallbackLogPath
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
           }
 
       # 汇总 Windows 产物；如果发行脚本没有写入 dist，则兜底打包 Flutter Release 目录。
       - name: Collect Windows outputs
+        if: always()
         shell: pwsh
         run: |
           # 产物目录固定为仓库根目录下的 dist，便于 upload-artifact 统一读取。
@@ -122,20 +154,30 @@ jobs:
             Out-String |
             Set-Content -Path $diagnosticPath
 
-          # 输出产物清单，并在没有任何可下载文件时让 workflow 明确失败。
-          $downloadableFiles = Get-ChildItem -Path $distPath -Recurse -File |
-            Where-Object { $_.Name -ne "artifact-diagnostics.txt" }
-          if (-not $downloadableFiles) {
+          # 只把真正的安装包/便携包视为有效产物，构建树和日志只用于诊断。
+          $validArtifactFiles = Get-ChildItem -Path $distPath -Recurse -File |
+            Where-Object {
+              $_.Name -notin @(
+                "artifact-diagnostics.txt",
+                "flutter-analyze.log",
+                "setup-windows.log",
+                "flutter-build-windows.log",
+                "FlClash-Bajie-Windows-build-tree.zip",
+                "NO_DOWNLOADABLE_ARTIFACT.txt"
+              ) -and $_.Extension -in @(".zip", ".exe", ".msi", ".msix")
+            }
+          if (-not $validArtifactFiles) {
             $missingMarkerPath = Join-Path $distPath "NO_DOWNLOADABLE_ARTIFACT.txt"
             "No downloadable Windows artifact was found. Check artifact-diagnostics.txt." |
               Set-Content -Path $missingMarkerPath
             Write-Warning "No downloadable Windows artifact was found. Diagnostics will be uploaded."
             return
           }
-          $downloadableFiles | Select-Object FullName, Length | Format-Table -AutoSize
+          $validArtifactFiles | Select-Object FullName, Length | Format-Table -AutoSize
 
       # 上传 dist 目录，安装包可在 Actions 运行详情页下载。
       - name: Upload Windows artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: FlClash-Bajie-Windows-x64
@@ -145,6 +187,7 @@ jobs:
 
       # 上传诊断后再校验是否真的包含可运行产物，避免成功状态掩盖空包问题。
       - name: Validate Windows artifact
+        if: always()
         shell: pwsh
         run: |
           # 只要缺失标记存在，就说明上传的是诊断文件而不是可运行客户端。
